@@ -10,16 +10,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Duckling.AmountOfMoney.RU.Rules
-  ( rules ) where
+  ( rules
+  ) where
 
 import Data.Maybe
-import qualified Data.Text as Text
-import Prelude
 import Data.String
+import Prelude
+import qualified Data.Text as Text
 
 import Duckling.AmountOfMoney.Helpers
 import Duckling.AmountOfMoney.Types (Currency(..), AmountOfMoneyData (..))
 import Duckling.Dimensions.Types
+import Duckling.Numeral.Helpers (isNatural, isPositive)
 import Duckling.Numeral.Types (NumeralData (..))
 import Duckling.Regex.Types
 import Duckling.Types
@@ -84,14 +86,14 @@ ruleIntersectAndXCents :: Rule
 ruleIntersectAndXCents = Rule
   { name = "intersect (and X cents)"
   , pattern =
-    [ financeWith TAmountOfMoney.value isJust
+    [ Predicate isWithoutCents
     , regex "и"
-    , financeWith TAmountOfMoney.currency (== Cent)
+    , Predicate isCents
     ]
   , prod = \tokens -> case tokens of
       (Token AmountOfMoney fd:
        _:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just c}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just c}:
        _) -> Just . Token AmountOfMoney $ withCents c fd
       _ -> Nothing
   }
@@ -100,12 +102,12 @@ ruleIntersect :: Rule
 ruleIntersect = Rule
   { name = "intersect"
   , pattern =
-    [ financeWith TAmountOfMoney.value isJust
-    , dimension Numeral
+    [ Predicate isWithoutCents
+    , Predicate isNatural
     ]
   , prod = \tokens -> case tokens of
       (Token AmountOfMoney fd:
-       Token Numeral (NumeralData {TNumeral.value = c}):
+       Token Numeral NumeralData{TNumeral.value = c}:
        _) -> Just . Token AmountOfMoney $ withCents c fd
       _ -> Nothing
   }
@@ -114,14 +116,14 @@ ruleIntersectAndNumeral :: Rule
 ruleIntersectAndNumeral = Rule
   { name = "intersect (and number)"
   , pattern =
-    [ financeWith TAmountOfMoney.value isJust
+    [ Predicate isWithoutCents
     , regex "и"
-    , dimension Numeral
+    , Predicate isNatural
     ]
   , prod = \tokens -> case tokens of
       (Token AmountOfMoney fd:
        _:
-       Token Numeral (NumeralData {TNumeral.value = c}):
+       Token Numeral NumeralData{TNumeral.value = c}:
        _) -> Just . Token AmountOfMoney $ withCents c fd
       _ -> Nothing
   }
@@ -130,14 +132,12 @@ ruleIntersectXCents :: Rule
 ruleIntersectXCents = Rule
   { name = "intersect (X cents)"
   , pattern =
-    [ financeWith TAmountOfMoney.value isJust
-    , financeWith id $ \x -> case TAmountOfMoney.value x of
-        Just v | v > 0 -> TAmountOfMoney.currency x == Cent
-        _              -> False
+    [ Predicate isWithoutCents
+    , Predicate isCents
     ]
   , prod = \tokens -> case tokens of
       (Token AmountOfMoney fd:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just c}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just c}:
        _) -> Just . Token AmountOfMoney $ withCents c fd
       _ -> Nothing
   }
@@ -147,7 +147,7 @@ rulePrecision = Rule
   { name = "about|exactly <amount-of-money>"
   , pattern =
     [ regex "точно|около|приблизительно|блико( к)?|почти"
-    , dimension AmountOfMoney
+    , Predicate isMoneyWithValue
     ]
   , prod = \tokens -> case tokens of
       (_:token:_) -> Just token
@@ -159,16 +159,17 @@ ruleIntervalBetweenNumeral = Rule
   { name = "between|from <numeral> to|and <amount-of-money>"
   , pattern =
     [ regex "между|от"
-    , dimension Numeral
+    , Predicate isPositive
     , regex "до|и"
     , financeWith TAmountOfMoney.value isJust
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token Numeral (NumeralData {TNumeral.value = from}):
+       Token Numeral NumeralData{TNumeral.value = from}:
        _:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c}):
-       _) ->
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c}:
+       _) | from < to ->
         Just . Token AmountOfMoney . withInterval (from, to) $ currencyOnly c
       _ -> Nothing
   }
@@ -180,14 +181,15 @@ ruleIntervalBetweenNumeral2 = Rule
     [ regex "между|от"
     , financeWith TAmountOfMoney.value isJust
     , regex "до|и"
-    , dimension Numeral
+    , Predicate isNatural
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just from, TAmountOfMoney.currency = c}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just from,
+                  TAmountOfMoney.currency = c}:
        _:
-       Token Numeral (NumeralData {TNumeral.value = to}):
-       _) ->
+       Token Numeral NumeralData{TNumeral.value = to}:
+       _) | from < to ->
         Just . Token AmountOfMoney . withInterval (from, to) $ currencyOnly c
       _ -> Nothing
   }
@@ -203,10 +205,12 @@ ruleIntervalBetween = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just from, TAmountOfMoney.currency = c1}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just from,
+                  TAmountOfMoney.currency = c1}:
        _:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c2}):
-       _) | c1 == c2 ->
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c2}:
+       _) | from < to && c1 == c2 ->
         Just . Token AmountOfMoney . withInterval (from, to) $ currencyOnly c1
       _ -> Nothing
   }
@@ -215,15 +219,16 @@ ruleIntervalNumeralDash :: Rule
 ruleIntervalNumeralDash = Rule
   { name = "<numeral> - <amount-of-money>"
   , pattern =
-    [ dimension Numeral
+    [ Predicate isPositive
     , regex "-"
     , financeWith TAmountOfMoney.value isJust
     ]
   , prod = \tokens -> case tokens of
-      (Token Numeral (NumeralData {TNumeral.value = from}):
+      (Token Numeral NumeralData{TNumeral.value = from}:
        _:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c}):
-       _) ->
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c}:
+       _) | from < to ->
          Just . Token AmountOfMoney . withInterval (from, to) $ currencyOnly c
       _ -> Nothing
   }
@@ -237,10 +242,12 @@ ruleIntervalDash = Rule
     , financeWith TAmountOfMoney.value isJust
     ]
   , prod = \tokens -> case tokens of
-      (Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just from, TAmountOfMoney.currency = c1}):
+      (Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just from,
+                  TAmountOfMoney.currency = c1}:
        _:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c2}):
-       _) | c1 == c2 ->
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c2}:
+       _) | from < to && c1 == c2 ->
         Just . Token AmountOfMoney . withInterval (from, to) $ currencyOnly c1
       _ -> Nothing
   }
@@ -254,7 +261,8 @@ ruleIntervalMax = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c}:
        _) -> Just . Token AmountOfMoney . withMax to $ currencyOnly c
       _ -> Nothing
   }
@@ -268,7 +276,8 @@ ruleIntervalMin = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token AmountOfMoney (AmountOfMoneyData {TAmountOfMoney.value = Just to, TAmountOfMoney.currency = c}):
+       Token AmountOfMoney AmountOfMoneyData{TAmountOfMoney.value = Just to,
+                  TAmountOfMoney.currency = c}:
        _) -> Just . Token AmountOfMoney . withMin to $ currencyOnly c
       _ -> Nothing
   }

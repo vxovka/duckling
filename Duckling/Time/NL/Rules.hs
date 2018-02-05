@@ -11,10 +11,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Duckling.Time.NL.Rules
-  ( rules ) where
+  ( rules
+  ) where
 
-import Prelude
 import Data.Text (Text)
+import Prelude
 import qualified Data.Text as Text
 
 import Duckling.Dimensions.Types
@@ -115,7 +116,7 @@ ruleRelativeMinutesToOrAfterIntegerPartOfDay = Rule
     , Predicate isATimeOfDay
     ]
   , prod = \tokens -> case tokens of
-      (Token Numeral (NumeralData {TNumeral.value = v}):
+      (Token Numeral NumeralData{TNumeral.value = v}:
        Token RegexMatch (GroupMatch (match:_)):
        Token Time td:
        _) -> case Text.toLower match of
@@ -176,7 +177,7 @@ ruleNthTimeOfTime2 = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token Ordinal (OrdinalData {TOrdinal.value = v}):
+       Token Ordinal OrdinalData{TOrdinal.value = v}:
        Token Time td1:
        _:
        Token Time td2:
@@ -214,13 +215,31 @@ ruleEvening :: Rule
 ruleEvening = Rule
   { name = "evening"
   , pattern =
-    [ regex "\\'s avonds|vanavond"
+    [ regex "\\'s avonds|avond"
     ]
   , prod = \_ ->
       let from = hour False 18
           to = hour False 0
       in Token Time . mkLatent . partOfDay <$>
            interval TTime.Open from to
+  }
+
+-- TODO: Single-word composition (#110)
+ruleEvenings :: Rule
+ruleEvenings = Rule
+  { name = "today/tomorrow/yesterday evening"
+  , pattern =
+    [ regex "(van|morgen|gister(en)?)avond"
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) -> do
+        td1 <- case Text.toLower match of
+          "van"    -> Just $ cycleNth TG.Day 0
+          "morgen" -> Just $ cycleNth TG.Day 1
+          _        -> Just $ cycleNth TG.Day $ - 1
+        td2 <- interval TTime.Open (hour False 18) (hour False 0)
+        Token Time . partOfDay <$> intersect td1 td2
+      _ -> Nothing
   }
 
 ruleTheDayofmonthNonOrdinal :: Rule
@@ -477,7 +496,7 @@ ruleAfternoon :: Rule
 ruleAfternoon = Rule
   { name = "afternoon"
   , pattern =
-    [ regex "('s )?middags?|(in de )?middag"
+    [ regex "('s )?middags?|(in de )?middag|namiddag"
     ]
   , prod = \_ ->
       let from = hour False 12
@@ -486,28 +505,23 @@ ruleAfternoon = Rule
            interval TTime.Open from to
   }
 
-ruleAfternoonToday :: Rule
-ruleAfternoonToday = Rule
-  { name = "afternoon today"
+-- TODO: Single-word composition (#110)
+ruleAfternoons :: Rule
+ruleAfternoons = Rule
+  { name = "today/tomorrow/yesterday afternoon"
   , pattern =
-    [ regex "vanmiddag"
+    [ regex "(vanmiddag|morgenmiddags?|gistermiddag|gisteren(na)?middag)"
     ]
-  , prod = \_ -> do
-      let td1 = cycleNth TG.Day 0
-      td2 <- interval TTime.Open (hour False 12) (hour False 18)
-      Token Time . partOfDay <$> intersect td1 td2
-  }
-
-ruleAfternoonTomorrow :: Rule
-ruleAfternoonTomorrow = Rule
-  { name = "afternoon tomorrow"
-  , pattern =
-    [ regex "morgenmiddags?"
-    ]
-  , prod = \_ -> do
-      let td1 = cycleNth TG.Day 1
-      td2 <- interval TTime.Open (hour False 12) (hour False 18)
-      Token Time . partOfDay <$> intersect td1 td2
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) -> do
+        td1 <- case Text.toLower match of
+          "vanmiddag"     -> Just $ cycleNth TG.Day 0
+          "morgenmiddag"  -> Just $ cycleNth TG.Day 1
+          "morgenmiddags" -> Just $ cycleNth TG.Day 1
+          _               -> Just . cycleNth TG.Day $ - 1
+        td2 <- interval TTime.Open (hour False 12) (hour False 18)
+        Token Time . partOfDay <$> intersect td1 td2
+      _ -> Nothing
   }
 
 ruleNamedmonthDayofmonthOrdinal :: Rule
@@ -587,7 +601,7 @@ ruleNthTimeAfterTime = Rule
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
-      (Token Ordinal (OrdinalData {TOrdinal.value = v}):
+      (Token Ordinal OrdinalData{TOrdinal.value = v}:
        Token Time td1:
        _:
        Token Time td2:
@@ -850,7 +864,7 @@ ruleNthTimeOfTime = Rule
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
-      (Token Ordinal (OrdinalData {TOrdinal.value = v}):
+      (Token Ordinal OrdinalData{TOrdinal.value = v}:
        Token Time td1:
        _:
        Token Time td2:
@@ -892,7 +906,7 @@ ruleNthTimeAfterTime2 = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:
-       Token Ordinal (OrdinalData {TOrdinal.value = v}):
+       Token Ordinal OrdinalData{TOrdinal.value = v}:
        Token Time td1:
        _:
        Token Time td2:
@@ -1010,6 +1024,24 @@ ruleMorning = Rule
           to = hour False 12
       in Token Time . mkLatent . partOfDay <$>
            interval TTime.Open from to
+  }
+
+-- TODO: Single-word composition (#110)
+ruleMornings :: Rule
+ruleMornings = Rule
+  { name = "today/tomorrow/yesterday morning"
+  , pattern =
+    [ regex "(vanmorgen|morgenochtend|gisterenochtend)"
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) -> do
+        td1 <- case Text.toLower match of
+          "vanmorgen"     -> Just $ cycleNth TG.Day 0
+          "morgenochtend" -> Just $ cycleNth TG.Day 1
+          _               -> Just . cycleNth TG.Day $ - 1
+        td2 <- interval TTime.Open (hour False 0) (hour False 12)
+        Token Time . partOfDay <$> intersect td1 td2
+      _ -> Nothing
   }
 
 ruleThisPartofday :: Rule
@@ -1137,6 +1169,23 @@ ruleNight = Rule
            interval TTime.Open from to
   }
 
+-- TODO: Single-word composition (#110)
+ruleNights :: Rule
+ruleNights = Rule
+  { name = "yesterday/tomorrow night"
+  , pattern =
+    [ regex "(morgen|gisteren)nacht"
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) -> do
+        td1 <- case Text.toLower match of
+          "morgen" -> Just $ cycleNth TG.Day 1
+          _        -> Just . cycleNth TG.Day $ - 1
+        td2 <- interval TTime.Open (hour False 18) (hour False 0)
+        Token Time . partOfDay <$> intersect td1 td2
+      _ -> Nothing
+  }
+
 ruleDayofmonthOrdinal :: Rule
 ruleDayofmonthOrdinal = Rule
   { name = "<day-of-month> (ordinal)"
@@ -1144,7 +1193,7 @@ ruleDayofmonthOrdinal = Rule
     [ Predicate isDOMOrdinal
     ]
   , prod = \tokens -> case tokens of
-      (Token Ordinal (OrdinalData {TOrdinal.value = v}):_) ->
+      (Token Ordinal OrdinalData{TOrdinal.value = v}:_) ->
         tt $ dayOfMonth v
       _ -> Nothing
   }
@@ -1215,42 +1264,6 @@ ruleHhmm = Rule
         m <- parseInt m2
         tt $ hourMinute False h m
       _ -> Nothing
-  }
-
-ruleTonight :: Rule
-ruleTonight = Rule
-  { name = "tonight"
-  , pattern =
-    [ regex "vanavond"
-    ]
-  , prod = \_ -> do
-      let td1 = cycleNth TG.Day 0
-      td2 <- interval TTime.Open (hour False 18) (hour False 0)
-      Token Time . partOfDay <$> intersect td1 td2
-  }
-
-ruleTomorrowNight :: Rule
-ruleTomorrowNight = Rule
-  { name = "tomorrownight"
-  , pattern =
-    [ regex "morgenavond"
-    ]
-  , prod = \_ -> do
-      let td1 = cycleNth TG.Day 1
-      td2 <- interval TTime.Open (hour False 18) (hour False 0)
-      Token Time . partOfDay <$> intersect td1 td2
-  }
-
-ruleLastNight :: Rule
-ruleLastNight = Rule
-  { name = "lastnight"
-  , pattern =
-    [ regex "gisteravond"
-    ]
-  , prod = \_ -> do
-      let td1 = cycleNth TG.Day $ - 1
-      td2 <- interval TTime.Open (hour False 18) (hour False 0)
-      Token Time . partOfDay <$> intersect td1 td2
   }
 
 ruleYear :: Rule
@@ -1382,7 +1395,7 @@ ruleOrdinalQuarter = Rule
     , Predicate $ isGrain TG.Quarter
     ]
   , prod = \tokens -> case tokens of
-      (Token Ordinal (OrdinalData {TOrdinal.value = v}):_) -> tt .
+      (Token Ordinal OrdinalData{TOrdinal.value = v}:_) -> tt .
         cycleNthAfter False TG.Quarter (v - 1) $ cycleNth TG.Year 0
       _ -> Nothing
   }
@@ -1395,7 +1408,7 @@ ruleTheDayofmonthOrdinal = Rule
     , Predicate isDOMOrdinal
     ]
   , prod = \tokens -> case tokens of
-      (_:Token Ordinal (OrdinalData {TOrdinal.value = v}):_) ->
+      (_:Token Ordinal OrdinalData{TOrdinal.value = v}:_) ->
         tt $ dayOfMonth v
       _ -> Nothing
   }
@@ -1500,8 +1513,7 @@ rules =
   , ruleAfterTimeofdayPostfix
   , ruleAfterWork
   , ruleAfternoon
-  , ruleAfternoonToday
-  , ruleAfternoonTomorrow
+  , ruleAfternoons
   , ruleAtTimeofday
   , ruleBetweenDatetimeAndDatetimeInterval
   , ruleBetweenTimeofdayAndTimeofdayInterval
@@ -1517,6 +1529,7 @@ rules =
   , ruleDurationBeforeTime
   , ruleDurationFromNow
   , ruleEvening
+  , ruleEvenings
   , ruleExactlyTimeofday
   , ruleFromDatetimeDatetimeInterval
   , ruleFromTimeofdayTimeofdayInterval
@@ -1540,12 +1553,14 @@ rules =
   , ruleMmddyyyy
   , ruleMonthDdddInterval
   , ruleMorning
+  , ruleMornings
   , ruleNamedmonthDayofmonthNonOrdinal
   , ruleNamedmonthDayofmonthOrdinal
   , ruleNextCycle
   , ruleNextNCycle
   , ruleNextTime
   , ruleNight
+  , ruleNights
   , ruleNthTimeAfterTime
   , ruleNthTimeAfterTime2
   , ruleNthTimeOfTime
@@ -1577,9 +1592,6 @@ rules =
   , ruleTimeofdaySharp
   , ruleTimeofdayTimeofdayInterval
   , ruleTimeofdayTimeofdayInterval2
-  , ruleTonight
-  , ruleTomorrowNight
-  , ruleLastNight
   , ruleUntilTimeofday
   , ruleUntilTimeofdayPostfix
   , ruleWeekend
